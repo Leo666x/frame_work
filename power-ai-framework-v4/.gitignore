@@ -1,0 +1,34 @@
+# 忽略所有临时文件
+*.tmp
+*.log
+*.swp
+*.bak
+
+# 忽略编译生成的文件
+*.o
+*.class
+*.pyc
+*.dll
+*.exe
+*.so
+*.a
+
+# 忽略 IDE 自动生成的文件
+.idea/
+.vscode/
+*.iml
+
+# 忽略 Node.js 项目中的依赖文件
+node_modules/
+package-lock.json
+
+# 忽略 Python 项目中的虚拟环境
+venv/
+__pycache__/
+
+# 忽略 Java 项目中的编译输出
+target/
+build/
+
+# 忽略配置文件中的敏感信息
+config/local_config.json

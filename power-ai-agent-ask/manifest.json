@@ -1,0 +1,6 @@
+{
+ "code":"power-ai-agent-ask",
+ "name":"单家医院即问即办 ",
+ "version":"v1.0.10",
+ "port": "39109"
+}

@@ -1,0 +1,278 @@
+# Framework Analyzer Configuration
+
+# 分析配置
+analysis:
+  # 最大文件大小限制
+  max_file_size: "10MB"
+  
+  # 支持的文件扩展名
+  supported_extensions:
+    - ".go"
+    - ".py"
+    - ".mod"
+    - ".sum"
+    - ".txt"
+    - ".md"
+    - ".yaml"
+    - ".yml"
+    - ".json"
+  
+  # 排除的目录
+  exclude_dirs:
+    - "vendor"
+    - "node_modules"
+    - ".git"
+    - "__pycache__"
+    - ".pytest_cache"
+    - "venv"
+    - ".venv"
+    - "env"
+    - ".env"
+    - "build"
+    - "dist"
+    - "target"
+    - ".idea"
+    - ".vscode"
+  
+  # 排除的文件模式
+  exclude_files:
+    - "*_test.go"
+    - "test_*.py"
+    - "*.pyc"
+    - "*.pyo"
+    - "*.log"
+    - "*.tmp"
+  
+  # 分析深度设置
+  max_depth: 10
+  max_files_per_dir: 100
+
+# 可视化配置
+visualization:
+  # 默认图表格式
+  default_format: "mermaid"
+  
+  # 图表节点数量限制
+  max_nodes: 50
+  
+  # 图表类型配置
+  diagram_types:
+    architecture:
+      enabled: true
+      max_components: 20
+    dependency:
+      enabled: true
+      max_dependencies: 30
+    dataflow:
+      enabled: true
+      max_flows: 15
+    interaction:
+      enabled: true
+      max_participants: 10
+  
+  # 颜色主题
+  colors:
+    application: "#E1F5FE"
+    service: "#F3E5F5"
+    middleware: "#E8F5E8"
+    database: "#FFF3E0"
+    cache: "#FFEBEE"
+    storage: "#F1F8E9"
+
+# 学习配置
+learning:
+  # 默认学习深度
+  default_depth: "intermediate"
+  
+  # 交互超时时间（秒）
+  interaction_timeout: 300
+  
+  # 学习路径配置
+  learning_paths:
+    beginner:
+      - "getting_started"
+      - "basic_concepts"
+      - "simple_examples"
+    intermediate:
+      - "architecture_overview"
+      - "design_patterns"
+      - "component_analysis"
+    advanced:
+      - "deep_dive_analysis"
+      - "performance_optimization"
+      - "best_practices"
+  
+  # 教程生成配置
+  tutorial:
+    include_code_examples: true
+    include_diagrams: true
+    include_next_steps: true
+    max_code_lines: 50
+
+# 模式检测配置
+pattern_detection:
+  # 置信度阈值
+  confidence_threshold: 0.3
+  
+  # Go语言模式配置
+  go_patterns:
+    factory:
+      enabled: true
+      weight: 1.0
+    singleton:
+      enabled: true
+      weight: 0.8
+    builder:
+      enabled: true
+      weight: 0.9
+    dependency_injection:
+      enabled: true
+      weight: 1.0
+    repository:
+      enabled: true
+      weight: 0.9
+    mvc:
+      enabled: true
+      weight: 0.8
+  
+  # Python模式配置
+  python_patterns:
+    decorator:
+      enabled: true
+      weight: 1.0
+    observer:
+      enabled: true
+      weight: 0.8
+    strategy:
+      enabled: true
+      weight: 0.9
+    mvc:
+      enabled: true
+      weight: 0.8
+
+# 业务场景识别配置
+business_scenario:
+  # 场景识别关键词
+  keywords:
+    ai_application:
+      - "ai"
+      - "ml"
+      - "machine learning"
+      - "deep learning"
+      - "neural network"
+      - "embedding"
+      - "vector"
+      - "llm"
+      - "gpt"
+      - "bert"
+      - "transformer"
+      - "milvus"
+      - "weaviate"
+      - "faiss"
+      - "tensorflow"
+      - "pytorch"
+      - "scikit-learn"
+    
+    microservice:
+      - "microservice"
+      - "micro service"
+      - "service mesh"
+      - "grpc"
+      - "consul"
+      - "etcd"
+      - "kubernetes"
+      - "docker"
+      - "container"
+      - "istio"
+      - "envoy"
+    
+    web_application:
+      - "web"
+      - "http"
+      - "rest"
+      - "api"
+      - "gin"
+      - "echo"
+      - "fiber"
+      - "django"
+      - "flask"
+      - "fastapi"
+      - "express"
+    
+    data_processing:
+      - "data"
+      - "etl"
+      - "pipeline"
+      - "stream"
+      - "batch"
+      - "kafka"
+      - "spark"
+      - "hadoop"
+      - "pandas"
+      - "numpy"
+  
+  # 置信度计算权重
+  confidence_weights:
+    keyword_match: 0.4
+    dependency_match: 0.3
+    pattern_match: 0.2
+    structure_match: 0.1
+
+# 输出配置
+output:
+  # 默认输出目录
+  default_output_dir: "./framework_analysis"
+  
+  # 文件命名模式
+  file_naming:
+    analysis_report: "analysis_report_{timestamp}.md"
+    pattern_report: "pattern_analysis_{timestamp}.md"
+    tutorial: "{tutorial_type}_tutorial.md"
+    diagram: "{diagram_type}_diagram.md"
+  
+  # 输出格式
+  formats:
+    markdown:
+      enabled: true
+      extension: ".md"
+    json:
+      enabled: true
+      extension: ".json"
+    html:
+      enabled: false
+      extension: ".html"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "framework_analyzer.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# 性能配置
+performance:
+  # 并发处理
+  max_workers: 4
+  
+  # 内存限制
+  max_memory_usage: "1GB"
+  
+  # 缓存配置
+  cache:
+    enabled: true
+    max_size: 1000
+    ttl: 3600  # 1小时
+
+# 扩展配置
+extensions:
+  # 自定义分析器
+  custom_analyzers: []
+  
+  # 自定义模式
+  custom_patterns: []
+  
+  # 插件目录
+  plugin_dirs:
+    - "./plugins"
+    - "~/.framework_analyzer/plugins"
