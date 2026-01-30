@@ -1,0 +1,7 @@
+{
+ "code":"power-ai-agent-v4demo",
+ "name":"V4版本智能体demo",
+ "version":"v4.0.0",
+ "port":"57111",
+ "instruction": "这么说明,请写详细"
+}
