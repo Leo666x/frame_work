@@ -7,7 +7,7 @@ import (
 func (a *AgentApp) GetMilvusClient() (*milvus_mw.Milvus, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.minio == nil {
+	if a.milvus == nil {
 		client, err := initMilvus(a.etcd)
 		if err != nil {
 			return nil, err

@@ -1,0 +1,16 @@
+{
+  "inputs": {
+    "patient_id": "8000005074"
+  },
+  "query": "我要查询住院期间花了多少钱",
+  "conversation_id": "conv-001",
+  "user_id": "user-001",
+  "channel": "app",
+  "channel_app": "miniapp",
+  "enterprise_id": "default",
+  "sys_track_code": "track-001",
+  "agent_code": "power-ai-agent-ask-fit",
+  "message_id": "msg-001",
+  "method_name": "",
+  "files": null
+}

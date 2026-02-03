@@ -1,0 +1,239 @@
+package decision
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v7"
+	powerai "orgine.com/ai-team/power-ai-framework-v4"
+	milvus_mw "orgine.com/ai-team/power-ai-framework-v4/middleware/milvus"
+	"orgine.com/ai-team/power-ai-framework-v4/middleware/server"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xjson"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xlog"
+	"sort"
+	"strings"
+)
+
+func LlmRespDeal(resContent string) string {
+
+	resContentRep := strings.ReplaceAll(resContent, "```json", "")
+	resContentRep = strings.ReplaceAll(resContentRep, "```", "")
+	resContentRep = strings.ReplaceAll(resContentRep, "<think>\n\n</think>\n\n", "")
+
+	return resContentRep
+}
+
+func (a *DecisionAgent) LlmCall(req *server.AgentRequest, prompt string) (string, error) {
+
+	requestLlm1st := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role":    "system",
+				"content": "You are a helpful assistant.",
+			},
+			map[string]interface{}{
+				"role":    "user",
+				"content": prompt,
+			},
+		},
+	}
+	res, err := a.App.SyncCallSystemLLM(req.EnterpriseId, requestLlm1st)
+	if err != nil {
+		xlog.LogErrorF(req.SysTrackCode, "send_msg", "llm_call", fmt.Sprintf("[%s]-未成功请求调用大模型", a.App.Manifest.Code), err)
+		return "", fmt.Errorf("-未成功请求调用大模型: %w", err)
+	}
+
+	resRaw := xjson.Get(res, "choices.0.message.content")
+	return resRaw.String(), nil
+}
+
+func RespJsonError(c *gin.Context, code, msg, stc string, data interface{}) {
+	c.JSON(200, map[string]interface{}{
+		"code":           code,
+		"message":        msg,
+		"sys_track_code": stc,
+		"data":           data,
+	})
+}
+
+func RespJsonSuccess(c *gin.Context, stc string, data interface{}) {
+	c.JSON(200, map[string]interface{}{
+		"code":           "success",
+		"message":        "执行成功",
+		"sys_track_code": stc,
+		"data":           data,
+	})
+}
+
+func (a *DecisionAgent) GetRedis(c *gin.Context, req *server.AgentRequest) *powerai.SessionValue {
+	// 假设上一轮智能体 power-ai-agent-report
+	r, _ := a.App.GetRedisClient()
+	// 假设 req.ConversationId 是会话唯一标识
+	redisKey := fmt.Sprintf("short_term_memory:session:%s", req.ConversationId)
+
+	// --- [模拟数据开始] ---
+	// 仅用于测试 Layer 3 逻辑：如果 Redis 里没数据，强制写入一个模拟的“上一轮状态”
+	// 场景：上一轮是报告解读智能体，刚说完“白细胞高”
+	existsN, _ := r.Exists(redisKey)
+	if existsN == 0 {
+		mockSession := powerai.SessionValue{
+			FlowContext: powerai.FlowContext{
+				CurrentAgentKey: "power-ai-agent-report", // 模拟当前活跃Agent
+				LastBotMessage:  "您的血常规显示白细胞升高，提示有感染风险。",
+			},
+			// 其他字段省略...
+		}
+		mockJson, _ := json.Marshal(mockSession)
+		_ = r.Set(redisKey, mockJson, 1800)
+	}
+	// --- [模拟数据结束] ---
+	val, err := r.Get(redisKey)
+	var session powerai.SessionValue
+
+	// 处理 Redis 读取结果
+	if err == redis.Nil {
+		// 情况 1: 没有会话历史 -> 这是一个新会话 -> 直接跳过 Layer 3，去 Layer 4
+		session = powerai.SessionValue{} // 空对象
+	} else if err != nil {
+		// 情况 2: Redis 报错
+		xlog.LogErrorF(req.SysTrackCode, "send_msg", "redis get", "读取Session失败", err)
+		RespJsonError(c, ErrorRedis, "记忆读取失败", req.SysTrackCode, nil)
+		return nil
+	} else {
+		// 情况 3: 读取成功，反序列化
+		if err := json.Unmarshal([]byte(val), &session); err != nil {
+			xlog.LogErrorF(req.SysTrackCode, "send_msg", "json unmarshal", "Session解析失败", err)
+			// 解析失败视为空会话
+			session = powerai.SessionValue{}
+		}
+	}
+	return &session
+
+}
+
+func (a *DecisionAgent) GetAgentByDomain(domainId string) ([]*AgentRegistryModel, error) {
+	var agents []*AgentRegistryModel
+
+	// 编写 SQL 语句
+	sqlQuery := `
+		SELECT 
+			id, 
+			agent_key, 
+			domain_id, 
+			agent_name, 
+			description, 
+			mcp_tool_name, 
+			is_active 
+		FROM 
+			ai_agent_registry 
+		WHERE 
+			domain_id = $1 
+		AND 
+			is_active = 'true' 
+	`
+
+	err := a.App.DBQueryMultiple(&agents, sqlQuery, domainId)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return agents, nil
+}
+
+func (a *DecisionAgent) GetHistoryDialogue(req *server.AgentRequest) (string, error) {
+	// 1 准备历史对话
+	messages, err := a.App.QueryMessageByConversationID(req.ConversationId)
+	if err != nil {
+		return "", err
+	}
+	// 历史会话组装
+	var msgHistory strings.Builder
+	for i := len(messages) - 2; i >= 0; i-- {
+		// 用户query
+		userMessage := messages[i].Query
+
+		// AI回复
+		data := xjson.Get(messages[i].Answer.String, "data").String()
+		// msg
+		agentMessage := xjson.Get(data, "msg").String()
+
+		msgTmp := fmt.Sprintf(`
+用户：%s
+ai：%s`, userMessage.String, agentMessage)
+		msgHistory.WriteString(msgTmp)
+	}
+	return msgHistory.String(), nil
+}
+
+func (a *DecisionAgent) GetAgentConfigByKey(agentKey string) (*AgentRegistryModel, error) {
+	var agent AgentRegistryModel
+
+	// 编写 SQL 语句
+	sqlQuery := `
+		SELECT 
+			id, 
+			agent_key, 
+			domain_id, 
+			agent_name, 
+			description, 
+			mcp_tool_name, 
+			is_active 
+		FROM 
+			ai_agent_registry 
+		WHERE 
+			agent_key = $1 
+		AND 
+			is_active = 'true' 
+		LIMIT 1
+	`
+
+	err := a.App.DBQuerySingle(&agent, sqlQuery, agentKey)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &agent, nil
+}
+
+func (a *DecisionAgent) RerankDeal(searchResult [][]milvus_mw.SearchResult, enterpriseId string, query string) ([]milvus_mw.SearchResult, error) {
+	// 0. 基础校验：如果没有检索结果，直接返回空
+	if len(searchResult) == 0 || len(searchResult[0]) == 0 {
+		return nil, nil
+	}
+
+	// 获取第一组搜索结果
+	hits := searchResult[0]
+
+	// 1. 准备重排序所需的文档列表 (Docs)
+	docs := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		// 从 Data map 中提取意图描述
+		if desc, ok := hit.Data["intent_description"]; ok {
+			docs = append(docs, desc)
+		} else {
+			// 如果数据缺失，补空字符串占位，保证 docs 和 hits 索引一一对应
+			docs = append(docs, "")
+		}
+	}
+
+	// 2. 调用重排序接口
+	// RerankResults 通常返回 []float64
+	newScores, err := a.App.RerankResults(enterpriseId, query, docs)
+	if err != nil {
+		return nil, fmt.Errorf("rerank failed: %w", err)
+	}
+
+	// 3. 更新分数
+	for i := range hits {
+		hits[i].Score = float32(newScores[i])
+	}
+
+	// 4. 执行排序 (降序：分数高的在前)
+	sort.Slice(hits, func(i, j int) bool {
+		return hits[i].Score > hits[j].Score
+	})
+
+	return hits, nil
+}
