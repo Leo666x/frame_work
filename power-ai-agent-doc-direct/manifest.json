@@ -1,0 +1,8 @@
+{
+ "code":"power-ai-agent-doc-direct",
+ "name":"导诊",
+ "version":"v4.0.0",
+ "port":"39603",
+ "instruction": "这么说明,请写详细",
+ "description": "找医生"
+}

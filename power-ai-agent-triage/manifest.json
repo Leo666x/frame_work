@@ -1,0 +1,8 @@
+{
+ "code":"power-ai-agent-triage",
+ "name":"导诊",
+ "version":"v4.0.0",
+ "port":"39601",
+ "instruction": "这么说明,请写详细",
+ "description": "导诊"
+}
