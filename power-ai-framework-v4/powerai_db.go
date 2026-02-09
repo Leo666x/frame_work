@@ -166,6 +166,37 @@ func (a *AgentApp) QueryMessageByConversationIDASC(conversationID string) ([]*AI
 	return r, nil
 }
 
+// QueryMessageByConversationIDASCFromCheckpoint 根据conversationID和checkpointMessageID查询消息列表，返回多值，按时间升序（从checkpoint之后开始）
+func (a *AgentApp) QueryMessageByConversationIDASCFromCheckpoint(conversationID, checkpointMessageID string) ([]*AIMessage, error) {
+	if conversationID == "" {
+		return nil, fmt.Errorf("conversationID不能为空")
+	}
+
+	client, err := a.GetPgSqlClient()
+	if err != nil {
+		return nil, err
+	}
+
+	var sql string
+	var r []*AIMessage
+
+	if checkpointMessageID == "" {
+		// 如果没有checkpointMessageID，返回所有消息
+		sql = `select message_id,conversation_id,query,answer,rating,inputs,errors,agent_code,file_id,create_time, update_time,extended_field from ai_message where conversation_id = $1 ORDER BY create_time ASC`
+		if err := client.QueryMultiple(&r, sql, conversationID); err != nil {
+			return nil, err
+		}
+	} else {
+		// 有checkpointMessageID，只返回checkpoint之后的消息（不包括checkpoint本身）
+		sql = `select message_id,conversation_id,query,answer,rating,inputs,errors,agent_code,file_id,create_time, update_time,extended_field from ai_message where conversation_id = $1 and create_time > (select create_time from ai_message where message_id = $2) ORDER BY create_time ASC`
+		if err := client.QueryMultiple(&r, sql, conversationID, checkpointMessageID); err != nil {
+			return nil, err
+		}
+	}
+
+	return r, nil
+}
+
 // QueryMessageByLimit 根据conversationID查询消息列表，限制条数
 func (a *AgentApp) QueryMessageByLimit(conversationID string, limit int) ([]*AIMessage, error) {
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"orgine.com/ai-team/power-ai-framework-v4/middleware/server"
+	"time"
 )
 
 // SessionValue 对应 Redis Value 的顶层结构
@@ -28,8 +29,10 @@ type FlowContext struct {
 }
 
 type MessageContext struct {
-	Summary        string     `json:"summary"`
-	WindowMessages []*Message `json:"window_messages"`
+	Summary            string     `json:"summary"`
+	WindowMessages     []*Message `json:"window_messages"`
+	Mode               string     `json:"mode,omitempty"`
+	CheckpointMessageID string     `json:"checkpoint_message_id,omitempty"` // 当前段起始的消息ID
 }
 
 type Message struct {
@@ -44,7 +47,8 @@ type GlobalState struct {
 	// ===============================
 	// 这里的字段必须是全院通用的"官方语言"。
 	// Router 只需要看这里，不需要去遍历 AgentSlots。
-	Shared *SharedEntities `json:"shared"`
+	Shared   *SharedEntities `json:"shared"`
+	Entities *SharedEntities `json:"entities,omitempty"`
 
 	// ===============================
 	// 2. 智能体私有槽位 (Agent 独享的记忆)
@@ -127,6 +131,77 @@ type UserProfile struct {
 const ShortMemorySessionKeyPrefix = "short_term_memory:session:%s"
 const expiration = 30 * 60
 
+const (
+	MemoryModeFullHistory = "FULL_HISTORY"
+	MemoryModeSummaryN    = "SUMMARY_N"
+)
+
+func newDefaultSessionValue(conversationID, userID string) *SessionValue {
+	return &SessionValue{
+		Meta: &MetaInfo{
+			ConversationID: conversationID,
+			UserID:         userID,
+			UpdatedAt:      time.Now().Unix(),
+		},
+		FlowContext: &FlowContext{
+			CurrentAgentKey: "",
+			LastBotMessage:  "",
+			TurnCount:       0,
+		},
+		MessageContext: &MessageContext{
+			Summary:        "",
+			WindowMessages: nil,
+			Mode:           MemoryModeFullHistory,
+		},
+		GlobalState: &GlobalState{
+			Shared:        nil,
+			Entities:      nil,
+			AgentSlots:    nil,
+			CurrentIntent: "",
+			PendingAction: nil,
+		},
+		UserSnapshot: &UserProfile{
+			UserID:          userID,
+			Name:            "",
+			Allergies:       nil,
+			ChronicDiseases: nil,
+			SurgeryHistory:  nil,
+			Preferences:     nil,
+		},
+	}
+}
+
+func normalizeSessionValue(session *SessionValue) *SessionValue {
+	if session == nil {
+		return newDefaultSessionValue("", "")
+	}
+	if session.Meta == nil {
+		session.Meta = &MetaInfo{}
+	}
+	if session.FlowContext == nil {
+		session.FlowContext = &FlowContext{}
+	}
+	if session.MessageContext == nil {
+		session.MessageContext = &MessageContext{}
+	}
+	if session.MessageContext.Mode == "" {
+		session.MessageContext.Mode = MemoryModeFullHistory
+	}
+	if session.GlobalState == nil {
+		session.GlobalState = &GlobalState{}
+	}
+	if session.GlobalState.Shared == nil && session.GlobalState.Entities != nil {
+		session.GlobalState.Shared = session.GlobalState.Entities
+	}
+	if session.GlobalState.Entities == nil && session.GlobalState.Shared != nil {
+		session.GlobalState.Entities = session.GlobalState.Shared
+	}
+	if session.UserSnapshot == nil {
+		session.UserSnapshot = &UserProfile{}
+	}
+	return session
+}
+
 func (a *AgentApp) CreateShortMemory(req *server.AgentRequest) error {
 	client, err := a.GetRedisClient()
 	if err != nil {
@@ -137,36 +212,7 @@ func (a *AgentApp) CreateShortMemory(req *server.AgentRequest) error {
 	if count > 0 {
 		return nil
 	}
-	session := &SessionValue{
-		Meta: &MetaInfo{
-			ConversationID: req.ConversationId,
-			UserID:         req.UserId,
-			UpdatedAt:      0,
-		},
-		FlowContext: &FlowContext{
-			CurrentAgentKey: "",
-			LastBotMessage:  "",
-			TurnCount:       0,
-		},
-		MessageContext: &MessageContext{
-			Summary:        "",
-			WindowMessages: nil,
-		},
-		GlobalState: &GlobalState{
-			Shared:        nil,
-			AgentSlots:    nil,
-			CurrentIntent: "",
-			PendingAction: nil,
-		},
-		UserSnapshot: &UserProfile{
-			UserID:          req.UserId,
-			Name:            "",
-			Allergies:       nil,
-			ChronicDiseases: nil,
-			SurgeryHistory:  nil,
-			Preferences:     nil,
-		},
-	}
+	session := newDefaultSessionValue(req.ConversationId, req.UserId)
 	b, _ := json.Marshal(session)
 	return client.Set(key, string(b), expiration)
 }
@@ -185,7 +231,7 @@ func (a *AgentApp) GetShortMemory(conversationId string) (*SessionValue, error) 
 	if err != nil {
 		return nil, err
 	}
-	return session, nil
+	return normalizeSessionValue(session), nil
 }
 func (a *AgentApp) SetShortMemory(conversationId string, session *SessionValue) error {
 	client, err := a.GetRedisClient()
@@ -193,6 +239,9 @@ func (a *AgentApp) SetShortMemory(conversationId string, session *SessionValue) 
 		return err
 	}
 	key := fmt.Sprintf(ShortMemorySessionKeyPrefix, conversationId)
+	session = normalizeSessionValue(session)
+	session.Meta.ConversationID = conversationId
+	session.Meta.UpdatedAt = time.Now().Unix()
 	b, _ := json.Marshal(session)
 	return client.Set(key, string(b), expiration)
 }
