@@ -2,7 +2,7 @@ module power-ai-agent-decision
 
 go 1.25.2
 
-replace orgine.com/ai-team/power-ai-framework-v4 v1.0.13 => orgine.com/ai-team/power-ai-framework-v4.git v1.0.13
+replace orgine.com/ai-team/power-ai-framework-v4 v1.0.13 => ../power-ai-framework-v4
 
 require (
 	github.com/gin-gonic/gin v1.11.0

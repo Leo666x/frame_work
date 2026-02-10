@@ -12,7 +12,12 @@ import (
 	redis_mw "orgine.com/ai-team/power-ai-framework-v4/middleware/redis"
 	"orgine.com/ai-team/power-ai-framework-v4/middleware/server"
 	weaviate_mw "orgine.com/ai-team/power-ai-framework-v4/middleware/weaviate"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xconfig"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xdefense"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xinit"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xlock"
 	"orgine.com/ai-team/power-ai-framework-v4/pkg/xlog"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xmemory"
 	"orgine.com/ai-team/power-ai-framework-v4/tools"
 	"os"
 	"os/signal"
@@ -36,6 +41,11 @@ type AgentApp struct {
 	agentConfig *AgentConfig
 	agentClient *AgentClient
 	mu          sync.Mutex
+	// 记忆管理相关字段
+	memoryConfig      *xconfig.MemoryConfig
+	sessionLockMgr    *xlock.SessionLockManager
+	sessionNormalizer *xdefense.SessionNormalizer
+	messageBuilder    *xmemory.MessageBuilder
 }
 
 type Manifest struct {
@@ -95,6 +105,17 @@ func NewAgent(manifest string, opts ...Option) (*AgentApp, error) {
 		return nil, fmt.Errorf("init etcd middleware err:%s", err.Error())
 	}
 
+	// 初始化记忆管理工具类
+	memoryInitResult := xinit.InitMemoryManager()
+	if memoryInitResult.Error != nil {
+		xlog.LogWarnF("INIT", "NewAgent", "InitMemoryManager",
+			fmt.Sprintf("failed to init memory manager: %v, using default config", memoryInitResult.Error))
+		// 使用默认配置
+		memoryInitResult.Config = xconfig.GetConfig()
+		memoryInitResult.LockManager = xlock.NewSessionLockManager()
+		memoryInitResult.MessageBuilder = xmemory.NewMessageBuilder(200, 100)
+	}
+
 	a := &AgentApp{
 		Manifest:    mf,
 		HttpServer:  server.New(),
@@ -102,6 +123,11 @@ func NewAgent(manifest string, opts ...Option) (*AgentApp, error) {
 		etcd:        etcd,
 		agentConfig: newAgentConfig(etcd, mf.Code, newOpts.DefaultConfigs, newOpts.ConfigChangeCallbacks),
 		agentClient: newAgentClient(etcd),
+		// 记忆管理相关字段
+		memoryConfig:      memoryInitResult.Config,
+		sessionLockMgr:    memoryInitResult.LockManager,
+		sessionNormalizer: xdefense.NewSessionNormalizer(memoryInitResult.Config.MemoryModeFullHistory),
+		messageBuilder:    memoryInitResult.MessageBuilder,
 	}
 
 	// 生成base_url

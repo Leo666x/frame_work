@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"orgine.com/ai-team/power-ai-framework-v4/middleware/pgsql"
 	"orgine.com/ai-team/power-ai-framework-v4/pkg/xdatetime"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xmemory"
 	"orgine.com/ai-team/power-ai-framework-v4/pkg/xuid"
 	"strings"
 	"time"
@@ -38,6 +39,54 @@ type AIMessage struct {
 	CreateTime     time.Time       `db:"create_time"`
 	UpdateTime     time.Time       `db:"update_time"`
 	ExtendedField  xsql.NullString `db:"extended_field"`
+}
+
+// GetQuery 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetQuery() string {
+	if m.Query.Valid {
+		return m.Query.String
+	}
+	return ""
+}
+
+// GetAnswer 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetAnswer() string {
+	if m.Answer.Valid {
+		return m.Answer.String
+	}
+	return ""
+}
+
+// GetQuery 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetQuery() string {
+	if m.Query.Valid {
+		return m.Query.String
+	}
+	return ""
+}
+
+// GetAnswer 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetAnswer() string {
+	if m.Answer.Valid {
+		return m.Answer.String
+	}
+	return ""
+}
+
+// GetQuery 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetQuery() string {
+	if m.Query.Valid {
+		return m.Query.String
+	}
+	return ""
+}
+
+// GetAnswer 实现 xmemory.AIMessage 接口
+func (m *AIMessage) GetAnswer() string {
+	if m.Answer.Valid {
+		return m.Answer.String
+	}
+	return ""
 }
 
 // AISystemConfig 对应 ai_system_config 表

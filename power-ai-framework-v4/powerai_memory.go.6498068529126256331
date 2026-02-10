@@ -1,0 +1,326 @@
+package powerai
+
+import (
+	"fmt"
+	"orgine.com/ai-team/power-ai-framework-v4/pkg/xjson"
+	"strings"
+)
+
+const (
+	defaultMemoryTokenThresholdRatio = 0.75
+	defaultMemoryRecentTurns         = 8
+	defaultModelContextWindow        = 16000
+)
+
+type MemoryQueryRequest struct {
+	ConversationID      string
+	EnterpriseID        string
+	PatientID           string
+	Query               string
+	TokenThresholdRatio float64
+	RecentTurns         int
+	ModelContextWindow  int
+}
+
+type MemoryContext struct {
+	ConversationID         string
+	Mode                   string
+	Session                *SessionValue
+	History                string
+	FullHistory            string
+	EstimatedTokens        int
+	TokenRatio             float64
+	ShouldCheckpointSummary bool
+}
+
+type MemoryWriteRequest struct {
+	ConversationID string
+	UserID         string
+	AgentCode      string
+	UserQuery      string
+	AgentResponse  string
+}
+
+type MemoryWriteResult struct {
+	ConversationID string
+	Mode           string
+	UpdatedAt      int64
+}
+
+type SessionFinalizeRequest struct {
+	ConversationID string
+	Summary        string
+	RecentTurns    int
+}
+
+type MedicalFact struct {
+	FactType   string
+	FactValue  string
+	Confidence float64
+	Source     string
+}
+
+type UserPreferenceMemory struct {
+	Preference string
+	Source     string
+}
+
+type FactUpsertRequest struct {
+	ConversationID string
+	Facts          []*MedicalFact
+}
+
+type PreferenceUpsertRequest struct {
+	ConversationID string
+	Preferences    []*UserPreferenceMemory
+}
+
+func (a *AgentApp) QueryMemoryContext(req *MemoryQueryRequest) (*MemoryContext, error) {
+	if req == nil {
+		return nil, fmt.Errorf("memory query request is nil")
+	}
+	if req.ConversationID == "" {
+		return nil, fmt.Errorf("conversation_id is empty")
+	}
+	threshold, recentTurns, contextWindow := applyMemoryQueryDefaults(req)
+	session, err := a.GetShortMemory(req.ConversationID)
+	if err != nil {
+		session = newDefaultSessionValue(req.ConversationID, req.PatientID)
+	}
+	session = normalizeSessionValue(session)
+	mode := session.MessageContext.Mode
+
+	messages, err := a.QueryMessageByConversationIDASC(req.ConversationID)
+	if err != nil {
+		messages = nil
+	}
+	fullHistory := buildHistoryFromAIMessages(messages)
+	estimatedTokens := estimateTokenCount(fullHistory + "\n" + req.Query)
+	tokenRatio := float64(estimatedTokens) / float64(contextWindow)
+	shouldCheckpoint := mode == MemoryModeFullHistory && tokenRatio >= threshold
+
+	history := fullHistory
+	if mode == MemoryModeSummaryN {
+		history = composeSummaryAndRecent(session)
+		if strings.TrimSpace(history) == "" {
+			history = fullHistory
+			mode = MemoryModeFullHistory
+		}
+	}
+
+	return &MemoryContext{
+		ConversationID:          req.ConversationID,
+		Mode:                    mode,
+		Session:                 session,
+		History:                 history,
+		FullHistory:             fullHistory,
+		EstimatedTokens:         estimatedTokens,
+		TokenRatio:              tokenRatio,
+		ShouldCheckpointSummary: shouldCheckpoint,
+	}, nil
+}
+
+func (a *AgentApp) WriteTurn(req *MemoryWriteRequest) (*MemoryWriteResult, error) {
+	if req == nil {
+		return nil, fmt.Errorf("memory write request is nil")
+	}
+	if req.ConversationID == "" {
+		return nil, fmt.Errorf("conversation_id is empty")
+	}
+	session, err := a.GetShortMemory(req.ConversationID)
+	if err != nil {
+		session = newDefaultSessionValue(req.ConversationID, req.UserID)
+	}
+	session = normalizeSessionValue(session)
+	if req.UserID != "" {
+		session.Meta.UserID = req.UserID
+		if session.UserSnapshot != nil {
+			session.UserSnapshot.UserID = req.UserID
+		}
+	}
+	if req.AgentCode != "" {
+		session.FlowContext.CurrentAgentKey = req.AgentCode
+	}
+	if req.AgentResponse != "" {
+		session.FlowContext.LastBotMessage = req.AgentResponse
+	}
+	session.FlowContext.TurnCount++
+	if err := a.SetShortMemory(req.ConversationID, session); err != nil {
+		return nil, err
+	}
+	return &MemoryWriteResult{
+		ConversationID: req.ConversationID,
+		Mode:           session.MessageContext.Mode,
+		UpdatedAt:      session.Meta.UpdatedAt,
+	}, nil
+}
+
+func (a *AgentApp) CheckpointShortMemory(conversationID, summary string, recentTurns int) error {
+	if conversationID == "" {
+		return fmt.Errorf("conversation_id is empty")
+	}
+	if recentTurns <= 0 {
+		recentTurns = defaultMemoryRecentTurns
+	}
+	session, err := a.GetShortMemory(conversationID)
+	if err != nil {
+		session = newDefaultSessionValue(conversationID, "")
+	}
+	session = normalizeSessionValue(session)
+	messages, err := a.QueryMessageByConversationIDASC(conversationID)
+	if err != nil {
+		return err
+	}
+	session.MessageContext.Summary = strings.TrimSpace(summary)
+	session.MessageContext.WindowMessages = buildRecentMessages(messages, recentTurns)
+	session.MessageContext.Mode = MemoryModeSummaryN
+	return a.SetShortMemory(conversationID, session)
+}
+
+func (a *AgentApp) FinalizeSessionMemory(req *SessionFinalizeRequest) error {
+	if req == nil {
+		return fmt.Errorf("session finalize request is nil")
+	}
+	return a.CheckpointShortMemory(req.ConversationID, req.Summary, req.RecentTurns)
+}
+
+func (a *AgentApp) UpsertFacts(req *FactUpsertRequest) error {
+	if req == nil {
+		return fmt.Errorf("fact upsert request is nil")
+	}
+	return nil
+}
+
+func (a *AgentApp) UpsertPreferences(req *PreferenceUpsertRequest) error {
+	if req == nil {
+		return fmt.Errorf("preference upsert request is nil")
+	}
+	return nil
+}
+
+func applyMemoryQueryDefaults(req *MemoryQueryRequest) (float64, int, int) {
+	threshold := req.TokenThresholdRatio
+	if threshold <= 0 {
+		threshold = defaultMemoryTokenThresholdRatio
+	}
+	recentTurns := req.RecentTurns
+	if recentTurns <= 0 {
+		recentTurns = defaultMemoryRecentTurns
+	}
+	contextWindow := req.ModelContextWindow
+	if contextWindow <= 0 {
+		contextWindow = defaultModelContextWindow
+	}
+	return threshold, recentTurns, contextWindow
+}
+
+func buildHistoryFromAIMessages(messages []*AIMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+		userMessage := strings.TrimSpace(msg.Query.String)
+		agentMessage := extractAgentAnswer(msg.Answer.String)
+		if userMessage != "" {
+			builder.WriteString("用户: ")
+			builder.WriteString(userMessage)
+			builder.WriteString("\n")
+		}
+		if agentMessage != "" {
+			builder.WriteString("AI: ")
+			builder.WriteString(agentMessage)
+			builder.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func composeSummaryAndRecent(session *SessionValue) string {
+	if session == nil || session.MessageContext == nil {
+		return ""
+	}
+	var builder strings.Builder
+	summary := strings.TrimSpace(session.MessageContext.Summary)
+	if summary != "" {
+		builder.WriteString("历史摘要: ")
+		builder.WriteString(summary)
+		builder.WriteString("\n")
+	}
+	for _, msg := range session.MessageContext.WindowMessages {
+		if msg == nil || strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if role == "user" {
+			builder.WriteString("用户: ")
+		} else {
+			builder.WriteString("AI: ")
+		}
+		builder.WriteString(strings.TrimSpace(msg.Content))
+		builder.WriteString("\n")
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func buildRecentMessages(messages []*AIMessage, recentTurns int) []*Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	start := len(messages) - recentTurns
+	if start < 0 {
+		start = 0
+	}
+	recent := make([]*Message, 0, recentTurns*2)
+	for _, msg := range messages[start:] {
+		if msg == nil {
+			continue
+		}
+		userMessage := strings.TrimSpace(msg.Query.String)
+		agentMessage := extractAgentAnswer(msg.Answer.String)
+		if userMessage != "" {
+			recent = append(recent, &Message{
+				Role:    "user",
+				Content: userMessage,
+			})
+		}
+		if agentMessage != "" {
+			recent = append(recent, &Message{
+				Role:    "assistant",
+				Content: agentMessage,
+			})
+		}
+	}
+	return recent
+}
+
+func extractAgentAnswer(answer string) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return ""
+	}
+	data := xjson.Get(answer, "data")
+	if data.Exists() {
+		msg := xjson.Get(data.String(), "msg")
+		if msg.Exists() {
+			return strings.TrimSpace(msg.String())
+		}
+	}
+	return answer
+}
+
+func estimateTokenCount(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+	runeCount := len([]rune(text))
+	tokens := runeCount / 4
+	if tokens <= 0 {
+		return 1
+	}
+	return tokens
+}

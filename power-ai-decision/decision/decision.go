@@ -1,3 +1,6 @@
+//go:build legacy_decision
+// +build legacy_decision
+
 package decision
 
 import (
